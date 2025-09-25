@@ -1,0 +1,97 @@
+name: Cache Test Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      cache_key:
+        description: 'Custom cache key suffix'
+        required: false
+        default: 'default'
+        type: string
+
+jobs:
+  cache-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create test directory
+        run: |
+          mkdir -p test-cache-dir
+          echo "Initial content from workflow run $(date)" > test-cache-dir/test-file.txt
+          echo "Created initial file with content:"
+          cat test-cache-dir/test-file.txt
+
+      - name: Cache test directory (first time)
+        id: cache-step-1
+        uses: actions/cache@v4
+        with:
+          path: test-cache-dir
+          key: test-cache-${{ github.run_id }}-${{ inputs.cache_key }}
+
+      - name: Check cache hit status (first time)
+        run: |
+          echo "Cache hit: ${{ steps.cache-step-1.outputs.cache-hit }}"
+          if [ "${{ steps.cache-step-1.outputs.cache-hit }}" = "true" ]; then
+            echo "✅ Cache was restored"
+            echo "File contents after cache restore:"
+            cat test-cache-dir/test-file.txt
+          else
+            echo "❌ Cache miss - this is expected for the first run"
+          fi
+
+      - name: Modify file content
+        run: |
+          echo "" >> test-cache-dir/test-file.txt
+          echo "Modified content added at $(date)" >> test-cache-dir/test-file.txt
+          echo "Updated file contents:"
+          cat test-cache-dir/test-file.txt
+
+      - name: Save modified content to cache
+        uses: actions/cache/save@v4
+        with:
+          path: test-cache-dir
+          key: test-cache-${{ github.run_id }}-${{ inputs.cache_key }}-modified
+
+      - name: Remove test directory to simulate fresh environment
+        run: |
+          rm -rf test-cache-dir
+          echo "Removed test directory"
+
+      - name: Restore cache with modified content
+        id: cache-step-2
+        uses: actions/cache@v4
+        with:
+          path: test-cache-dir
+          key: test-cache-${{ github.run_id }}-${{ inputs.cache_key }}-modified
+
+      - name: Verify restored cache contains modifications
+        run: |
+          echo "Cache hit for modified content: ${{ steps.cache-step-2.outputs.cache-hit }}"
+          if [ "${{ steps.cache-step-2.outputs.cache-hit }}" = "true" ]; then
+            echo "✅ Modified cache was restored successfully"
+            echo "Final file contents:"
+            cat test-cache-dir/test-file.txt
+            echo ""
+            echo "Verifying modifications are present:"
+            if grep -q "Modified content added" test-cache-dir/test-file.txt; then
+              echo "✅ SUCCESS: File contains the modifications!"
+            else
+              echo "❌ FAILURE: File does not contain expected modifications"
+              exit 1
+            fi
+          else
+            echo "❌ FAILURE: Could not restore modified cache"
+            exit 1
+          fi
+
+      - name: Cache test summary
+        run: |
+          echo "=== CACHE TEST SUMMARY ==="
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Cache key suffix: ${{ inputs.cache_key }}"
+          echo "Initial cache key: test-cache-${{ github.run_id }}-${{ inputs.cache_key }}"
+          echo "Modified cache key: test-cache-${{ github.run_id }}-${{ inputs.cache_key }}-modified"
+          echo "Test completed successfully! ✅"
